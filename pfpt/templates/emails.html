@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <link rel="icon" href="/favicon.ico">
+
+    <title>Emails Sent</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.2/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Custom styles for this template -->
+    <style>
+body {
+  padding-top: 40px;
+  padding-bottom: 40px;
+  background-color: #eee;
+}
+    </style>
+  </head>
+
+  <body>
+
+    <div class="container">
+        <h1>Emails</h1>
+        <table class="table table-striped">
+            <tr>
+                <th style="width: 80%">Subject</th>
+                <th style="width: 10%">Sends</th>
+                <th style="width: 10%">Open %</th>
+            </tr>
+            {% for email in emails %}
+            <tr>
+                <td><a href="/email/{{ email.subject_hash }}">{{ email.subject }}</a></td>
+                <td>{{ email.sends }}</td>
+                <td>{{ email.open_percent }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+
+    </div>
+
+  </body>
+</html>

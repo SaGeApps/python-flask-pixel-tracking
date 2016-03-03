@@ -1,17 +1,22 @@
 from celery import Celery
-from flask import Flask, request, Response, render_template
+from flask import Flask, make_response, redirect, request, Response, render_template
+from functools import wraps
 from pymongo import MongoClient
 
+import argparse
 import base64
 import copy
+import getpass
 import hashlib
 import json
+import os
+import random
+import string
 import time
 
 debug = True
 
 app = Flask(__name__)
-
 app.config['CELERY_BROKER_URL'] = 'redis://localhost:6379/0'
 app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6379/0'
 app.config['MONGO_SERVER'] = 'localhost'
@@ -78,8 +83,6 @@ def consume_event(event_record):
                 '$inc': {'sends': 1}
             }, True)
 
-    return
-
 
 @app.route("/pixel.gif")
 def pixel():
@@ -100,12 +103,28 @@ def pixel():
     return Response(pixel_data, mimetype="image/gif")
 
 
-@app.route("/log")
-def log():
-    return render_template('log.html')
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.cookies.get('token', None)
+
+        if not token:
+            return redirect('/auth/login', 302)
+
+        user_collection = mongo_db['auth-users']
+
+        user = user_collection.find_one({'token': token})
+
+        if user is None:
+            return redirect('/auth/login', 302)
+
+        return f(*args, **kwargs)
+
+    return decorated_function
 
 
-@app.route("/json/emails")
+@app.route("/emails")
+@login_required
 def emails():
     subject_collection = mongo_db['subject-collection']
 
@@ -116,26 +135,111 @@ def emails():
 
         output.append(subject)
 
-    return Response(json.dumps(output), mimetype="application/json")
+    return render_template('emails.html', emails=output)
 
 
-@app.route("/json/email/<subject_hash>")
+@app.route("/email/<subject_hash>")
+@login_required
 def email(subject_hash):
     subject_collection = mongo_db['subject-collection']
     open_collection = mongo_db['opens-collection']
 
-    output = {}
-
     email = subject_collection.find_one({'subject_hash': subject_hash}, {'_id': False})
     opens = open_collection.find({'subject_hash': subject_hash}, {'_id': False})
 
+    output = {}
     output['email'] = email
     output['opens'] = []
 
     for openevt in opens:
         output['opens'].append(openevt)
 
-    return Response(json.dumps(output), mimetype="application/json")
+    return render_template('email.html', email=output)
 
-if __name__ == "__main__":
-    app.run(debug=debug)
+
+@app.route("/login")
+def login():
+    return redirect('/auth/login', 302)
+
+
+@app.route("/auth/login", methods=['GET', 'POST'])
+def auth_login():
+    if request.method == 'GET':
+        return render_template('login.html')
+
+    username = request.form.get('username', '')
+    password = request.form.get('password', '')
+
+    user = get_user(username)
+
+    if user and check_password(password, user['password']):
+        token = hashlib.sha512(''.join([random.SystemRandom().choice(string.ascii_letters) for _ in xrange(1024)])).hexdigest()
+
+        user_collection = mongo_db['auth-users']
+
+        user_collection.update_one({
+            'username': username
+        }, {
+            '$set': {
+                'token': token,
+            }
+        })
+
+        resp = make_response(redirect('/emails', 302))
+        resp.set_cookie('token', token)
+
+        return resp
+
+    return render_template('login.html')
+
+
+def set_password(raw_password):
+    algo = 'sha512'
+
+    salt = os.urandom(128)
+    encoded_salt = base64.b64encode(salt)
+
+    hsh = hashlib.sha512('{}{}'.format(salt, raw_password)).hexdigest()
+
+    return '{}:{}:{}'.format(algo, encoded_salt, hsh)
+
+
+def check_password(raw_password, enc_password):
+    algo, encoded_salt, hsh = enc_password.split(':')
+    salt = base64.b64decode(encoded_salt)
+    return hsh == hashlib.sha512('{}{}'.format(salt, raw_password)).hexdigest()
+
+
+def get_user(username):
+    user_collection = mongo_db['auth-users']
+
+    return user_collection.find_one({'username': username})
+
+
+def create_user(username, password):
+    user_collection = mongo_db['auth-users']
+
+    return user_collection.update_one({
+            'username': username
+        }, {
+            '$set': {
+                'password': set_password(password),
+                'token': None,
+            }
+        }, True)
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Python & Flask implementation of pixel tracking')
+
+    parser.add_argument('command', nargs=1, choices=('run', 'create-user', ))
+    args = parser.parse_args()
+
+    if 'run' in args.command:
+        app.run(debug=debug)
+    elif 'create-admin-user' in args.command:
+        username = raw_input("Username: ")
+        password = getpass.getpass("Password: ")
+
+        create_user(username, password)
+
+        print('User {} has been created.'.format(username))
