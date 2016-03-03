@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en" ng-app>
+<head>
+  <meta charset="utf-8">
+  <title>Email Event Log</title>
+  <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.4.9/angular.min.js"></script>
+  <script>
+(function () {
+    var app = angular.module('app', []);
+
+    var lskdfj = function($scope) {
+        $scope.emails = ['test', 'test1'];
+    }
+
+    app.controller('EmailListCtrl', lskdfj);
+})();
+  </script>
+</head>
+<body ng-controller="EmailListCtrl">
+<ul>
+    <li ng-repeat="email in emails">
+      <span>{{email}}</span>
+    </li>
+  </ul>
+</body>
+</html>

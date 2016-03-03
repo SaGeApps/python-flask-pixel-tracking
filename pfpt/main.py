@@ -1,5 +1,5 @@
 from celery import Celery
-from flask import Flask, request, Response
+from flask import Flask, request, Response, render_template
 from pymongo import MongoClient
 
 import base64
@@ -100,14 +100,40 @@ def pixel():
     return Response(pixel_data, mimetype="image/gif")
 
 
-@app.route("/events")
-def events():
+@app.route("/log")
+def log():
+    return render_template('log.html')
+
+
+@app.route("/json/emails")
+def emails():
     subject_collection = mongo_db['subject-collection']
 
     output = []
 
     for subject in subject_collection.find({}, {'_id': False}):
+        subject['open_percent'] = (float(subject['opens']) / float(subject['sends'])) * 100.
+
         output.append(subject)
+
+    return Response(json.dumps(output), mimetype="application/json")
+
+
+@app.route("/json/email/<subject_hash>")
+def email(subject_hash):
+    subject_collection = mongo_db['subject-collection']
+    open_collection = mongo_db['opens-collection']
+
+    output = {}
+
+    email = subject_collection.find_one({'subject_hash': subject_hash}, {'_id': False})
+    opens = open_collection.find({'subject_hash': subject_hash}, {'_id': False})
+
+    output['email'] = email
+    output['opens'] = []
+
+    for openevt in opens:
+        output['opens'].append(openevt)
 
     return Response(json.dumps(output), mimetype="application/json")
 
