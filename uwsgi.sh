@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 cd /home/emailtracker/web
 source bin/activate
 cd python-flask-pixel-tracking
