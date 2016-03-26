@@ -17,4 +17,10 @@ Email pixel tracking using Flask, MongoDB and Celery.
 
 # Usage
 
-http://hostname/pixel.gif?action=[open|send]&subect=(subject)&address=(recipient address)
+GET http://hostname/api/generate-pixel?to=[]&from=[]&subject=[]
+
+this will return an id that you pass to:
+
+http://hostname/pixel.gif?sh=(id)
+
+which should be embedded as an image in your email

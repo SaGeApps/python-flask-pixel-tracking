@@ -1,15 +1,16 @@
 from celery import Celery
 from flask import Flask, make_response, redirect, request, Response, render_template
 from functools import wraps
-from pymongo import MongoClient
 
 import argparse
 import base64
 import copy
+import datetime
 import getpass
 import hashlib
 import json
 import os
+import pymongo
 import random
 import string
 import time
@@ -22,7 +23,7 @@ app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6379/0'
 app.config['MONGO_SERVER'] = 'localhost'
 app.config['MONGO_DB'] = 'flask-pixel-tracker'
 
-mongo_client = MongoClient(app.config['MONGO_SERVER'], 27017, connect=False)
+mongo_client = pymongo.MongoClient(app.config['MONGO_SERVER'], 27017, connect=False)
 mongo_db = mongo_client[app.config['MONGO_DB']]
 
 celery = Celery('pfpt.main', broker=app.config['CELERY_BROKER_URL'])
@@ -30,58 +31,27 @@ celery.conf.update(app.config)
 
 
 @celery.task
-def consume_event(event_record):
-    event_action = event_record['data']['action'] if 'action' in event_record['data'] else 'open'
+def consume_open(event_record):
+    send_hash = event_record['data']['sh'] if 'sh' in event_record['data'] else None
 
     event_collection = mongo_db['event-collection']
     event_id = event_collection.insert_one(event_record)
 
-    subject = event_record['data']['subject'] if 'subject' in event_record['data'] else ''
-    address = event_record['data']['address'] if 'address' in event_record['data'] else ''
-
+    sent_collection = mongo_db['sent-collection']
     subject_collection = mongo_db['subject-collection']
     open_collection = mongo_db['opens-collection']
 
-    subject_hash = hashlib.sha1(subject).hexdigest()
-    open_hash = hashlib.sha1('{}:{}'.format(subject, address)).hexdigest()
+    sent_collection.update_one({'send_hash': send_hash}, {'$inc': {'opens': 1}}, True)
 
-    if event_action == 'open':
-        open_result = open_collection.update_one({'open_hash': open_hash}, {'$inc': {'opens': 1}}, True)
+    sent_email = sent_collection.find_one({'send_hash': send_hash})
 
-        if open_collection.find_one({'open_hash': open_hash})['opens'] == 1:
-            subject_collection.update_one({'subject_hash': subject_hash}, {'$inc': {'opens': 1}}, True)
+    subject_hash = sent_email['subject_hash']
+    open_hash = sent_email['open_hash']
 
-    if event_action == 'send':
-        if subject_collection.find_one({'subject_hash': subject_hash}) is None:
-            subject_collection.insert_one({
-                'subject_hash': subject_hash,
-                'subject': subject,
-                'opens': 0,
-                'sends': 1,
-                'date_sent': int(time.time()),
-            })
-        else:
-            subject_collection.update_one({
-                'subject_hash': subject_hash
-            }, {
-                '$inc': {'sends': 1}
-            }, True)
+    open_result = open_collection.update_one({'open_hash': open_hash}, {'$inc': {'opens': 1}}, True)
 
-        if open_collection.find_one({'open_hash': open_hash}) is None:
-            open_collection.insert_one({
-                'open_hash': open_hash,
-                'subject_hash': subject_hash,
-                'subject': subject,
-                'opens': 0,
-                'sends': 1,
-                'date_sent': int(time.time()),
-            })
-        else:
-            open_collection.update_one({
-                'open_hash': open_hash
-            }, {
-                '$inc': {'sends': 1}
-            }, True)
+    if open_collection.find_one({'open_hash': open_hash})['opens'] == 1:
+        subject_collection.update_one({'subject_hash': subject_hash}, {'$inc': {'opens': 1}}, True)
 
 
 @app.route("/pixel.gif")
@@ -98,9 +68,68 @@ def pixel():
     for header in request.headers:
         event_record['headers'][header[0]] = request.headers.get(header[0])
 
-    consume_event.delay(event_record)
+    consume_open.delay(event_record)
 
     return Response(pixel_data, mimetype="image/gif")
+
+
+@app.route("/api/generate-pixel")
+def generate_pixel():
+    event_record = {
+        'to_address': request.args.get('to', None),
+        'from_address': request.args.get('from', None),
+        'subject': request.args.get('subject', None),
+        'sent_date': int(time.time()),
+        'opens': 0,
+    }
+
+    send_hash = hashlib.sha1('{}'.format(event_record)).hexdigest()
+    subject_hash = hashlib.sha1(event_record['subject']).hexdigest()
+    open_hash = hashlib.sha1('{}:{}'.format(event_record['subject'],
+        event_record['to_address'])).hexdigest()
+
+    event_record['send_hash'] = send_hash
+    event_record['subject_hash'] = subject_hash
+    event_record['open_hash'] = open_hash
+
+    sent_collection = mongo_db['sent-collection']
+    sent_collection.insert_one(event_record)
+
+    subject_collection = mongo_db['subject-collection']
+    open_collection = mongo_db['opens-collection']
+
+    if subject_collection.find_one({'subject_hash': subject_hash}) is None:
+        subject_collection.insert_one({
+            'subject_hash': subject_hash,
+            'subject': event_record['subject'],
+            'opens': 0,
+            'sends': 1,
+            'date_sent': int(time.time()),
+        })
+    else:
+        subject_collection.update_one({
+            'subject_hash': subject_hash
+        }, {
+            '$inc': {'sends': 1}
+        }, True)
+
+    if open_collection.find_one({'open_hash': open_hash}) is None:
+        open_collection.insert_one({
+            'open_hash': open_hash,
+            'subject_hash': subject_hash,
+            'subject': event_record['subject'],
+            'opens': 0,
+            'sends': 1,
+            'date_sent': int(time.time()),
+        })
+    else:
+        open_collection.update_one({
+            'open_hash': open_hash
+        }, {
+            '$inc': {'sends': 1}
+        }, True)
+
+    return Response('{}'.format({'id': send_hash}), mimetype="application/json")
 
 
 def login_required(f):
@@ -143,16 +172,17 @@ def emails():
 def email(subject_hash):
     subject_collection = mongo_db['subject-collection']
     open_collection = mongo_db['opens-collection']
+    sent_collection = mongo_db['sent-collection']
 
     email = subject_collection.find_one({'subject_hash': subject_hash}, {'_id': False})
-    opens = open_collection.find({'subject_hash': subject_hash}, {'_id': False})
+    sends = sent_collection.find({'subject_hash': subject_hash}, {'_id': False}).sort('sent_date', pymongo.DESCENDING)
 
     output = {}
     output['email'] = email
-    output['opens'] = []
+    output['sends'] = []
 
-    for openevt in opens:
-        output['opens'].append(openevt)
+    for e in sends:
+        output['sends'].append(e)
 
     return render_template('email.html', email=output)
 
@@ -193,6 +223,12 @@ def auth_login():
     return render_template('login.html')
 
 
+@app.template_filter('epoch_to_date')
+def epoch_to_date(value):
+    dt = datetime.datetime.fromtimestamp(value)
+    return dt.strftime('%Y-%m-%d %H:%M')
+
+
 def set_password(raw_password):
     algo = 'sha512'
 
@@ -228,10 +264,11 @@ def create_user(username, password):
             }
         }, True)
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Python & Flask implementation of pixel tracking')
 
-    parser.add_argument('command', nargs=1, choices=('run', 'create-user', ))
+    parser.add_argument('command', nargs=1, choices=('run', 'create-admin-user', ))
     args = parser.parse_args()
 
     if 'run' in args.command:

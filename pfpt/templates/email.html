@@ -31,14 +31,14 @@ body {
 
         <table class="table table-striped">
             <tr>
-                <th style="width: 80%">Recipient</th>
-                <th style="width: 10%">Sends</th>
+                <th style="width: 75%">Recipient</th>
+                <th style="width: 15%">Date</th>
                 <th style="width: 10%">Opens</th>
             </tr>
-            {% for email in email.opens %}
+            {% for email in email.sends %}
             <tr>
-                <td>{{ email.recipient_address }}</td>
-                <td>{{ email.sends }}</td>
+                <td>{{ email.to_address }}</td>
+                <th>{{ email.sent_date|epoch_to_date }}</td>
                 <td>{{ email.opens }}</td>
             </tr>
             {% endfor %}

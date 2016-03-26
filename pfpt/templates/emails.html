@@ -30,15 +30,17 @@ body {
         <h1>Emails</h1>
         <table class="table table-striped">
             <tr>
-                <th style="width: 80%">Subject</th>
-                <th style="width: 10%">Sends</th>
+                <th style="width: 70%">Subject</th>
+                <th style="width: 10%">Sent</th>
+                <th style="width: 10%">Opened</th>
                 <th style="width: 10%">Open %</th>
             </tr>
             {% for email in emails %}
             <tr>
                 <td><a href="/email/{{ email.subject_hash }}">{{ email.subject }}</a></td>
                 <td>{{ email.sends }}</td>
-                <td>{{ email.open_percent }}</td>
+                <td>{{ email.opens }}</td>
+                <td>{{ email.open_percent|round(1) }}</td>
             </tr>
             {% endfor %}
         </table>
