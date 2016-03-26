@@ -129,7 +129,7 @@ def generate_pixel():
             '$inc': {'sends': 1}
         }, True)
 
-    return Response('{}'.format({'id': send_hash}), mimetype="application/json")
+    return Response(json.dumps({'id': send_hash}), mimetype="application/json")
 
 
 def login_required(f):
