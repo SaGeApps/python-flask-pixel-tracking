@@ -216,7 +216,7 @@ def auth_login():
         })
 
         resp = make_response(redirect('/emails', 302))
-        resp.set_cookie('token', token)
+        resp.set_cookie('token', token, 3600 * 24 * 30)
 
         return resp
 
