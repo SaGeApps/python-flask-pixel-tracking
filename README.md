@@ -1,7 +1,13 @@
 python-flask-pixel-tracking
 ===========================
 
-Email pixel tracking using Flask, MongoDB and Celery.
+Email pixel tracking using Flask, MongoDB, Redis and Celery.
+
+# Install redis, mongo, and python-virtualenv
+`apt-get install redis-server mongodb python-virtualenv`
+
+# Optionally install python-dev for some tools
+`apt-get install python-dev`
 
 # Setup pip requirements
 
